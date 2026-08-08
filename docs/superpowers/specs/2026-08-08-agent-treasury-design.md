@@ -43,7 +43,7 @@ This is the harder and more valuable half. "Can this agent's income cover rent o
 | Is the planner an LLM? | **No.** Deterministic scheduling logic. An LLM layer can sit on top later without touching the execution path. |
 | How do expenses get paid? | Billers charge the card; we approve or decline. A simulated biller harness drives this during development. |
 | What are the expenses? | Household bills — subscriptions, rent, utilities. |
-| Persistence | **SQLite via `better-sqlite3`.** One file, no server, synchronous reads so the auth path never awaits I/O. |
+| Persistence | **SQLite via Node's built-in `node:sqlite`.** One file, no server, and `DatabaseSync` gives synchronous reads so the auth path never awaits I/O. Requires the `--experimental-sqlite` flag on Node 22. `better-sqlite3` was the first choice and was rejected: it needs a node-gyp native build, which fails on the build machine (no MSVC toolchain). |
 | Multi-tenancy | **Single user.** No accounts, no login. YAGNI until there is a second user. |
 
 ---
@@ -103,8 +103,8 @@ CREATE TABLE bills (
   merchant_id   TEXT NOT NULL,
   mcc           TEXT NOT NULL,
   amount_micro  TEXT NOT NULL,    -- bigint as decimal string
-  cadence       TEXT NOT NULL,    -- monthly | weekly | once
-  due_day       INTEGER NOT NULL, -- day of month (monthly) or weekday
+  cadence       TEXT NOT NULL,    -- monthly | weekly
+  due_day       INTEGER NOT NULL, -- 1..28 for monthly, 0..6 for weekly (0 = Sunday)
   priority      INTEGER NOT NULL, -- lower funds first
   tolerance_bps INTEGER NOT NULL DEFAULT 500,  -- utilities vary; 5% headroom
   active        INTEGER NOT NULL DEFAULT 1
@@ -131,6 +131,8 @@ CREATE TABLE authorizations (
   created_at    INTEGER NOT NULL
 );
 ```
+
+Cadence is `monthly` or `weekly` only. A one-off payment is just a discretionary charge; reservations exist for recurring obligations, and a `once` cadence would need a nullable absolute-date column that nothing else reads.
 
 Money columns are `TEXT` holding decimal strings, converted to `bigint` at the boundary. SQLite integers are 64-bit signed, which is enough today, but strings keep the discipline uniform and remove any chance of a driver silently coercing to float.
 
