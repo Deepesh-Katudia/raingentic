@@ -131,6 +131,18 @@ export function underwritingConfig() {
   };
 }
 
+export function treasuryConfig() {
+  return {
+    dbPath: opt("DB_PATH", "./float.db"),
+    reservationHorizonDays: reqInt("RESERVATION_HORIZON_DAYS", 35),
+    plannerIntervalMs: reqInt("PLANNER_INTERVAL_MS", 5000),
+    discretionaryMerchants: opt("DISCRETIONARY_MERCHANTS", "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  };
+}
+
 export function rainConfig() {
   const mode = opt("RAIN_MODE", "mock");
   if (mode !== "mock" && mode !== "live") {
