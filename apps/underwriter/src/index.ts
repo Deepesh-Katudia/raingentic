@@ -5,8 +5,14 @@ import {
   formatUsdSymbol,
   rainConfig,
   sellerConfig,
+  treasuryConfig,
   underwritingConfig,
 } from "@float/shared";
+import { openDb } from "./db/index.js";
+import { BillRepo } from "./bills/repo.js";
+import { AgentRepo } from "./agents/repo.js";
+import { createBillsRouter } from "./api/bills.js";
+import { createAgentsRouter } from "./api/agents.js";
 import { Store } from "./state.js";
 import { ChainWatcher } from "./watcher.js";
 import { decideWithDeadline, verifySignature, type AuthPolicy } from "./auth.js";
@@ -15,6 +21,11 @@ import { createRainClient, MockRainClient, parseAuthorization, type CardScope } 
 const uw = underwritingConfig();
 const rainCfg = rainConfig();
 const seller = sellerConfig();
+
+const treasury = treasuryConfig();
+const db = openDb(treasury.dbPath);
+const billRepo = new BillRepo(db);
+const agentRepo = new AgentRepo(db);
 
 const store = new Store({
   earningsWindowSecs: uw.earningsWindowSecs,
@@ -71,6 +82,11 @@ let lastLast4 = "0000";
 
 const app = express();
 app.use(express.json({ verify: (req, _res, buf) => ((req as never as { rawBody: string }).rawBody = buf.toString("utf8")) }));
+
+// Per-agent earnings are pooled by the chain watcher in Task 4; until then the
+// registry reports every agent as having earned nothing.
+app.use("/api/bills", createBillsRouter(billRepo));
+app.use("/api/agents", createAgentsRouter(agentRepo, () => ({})));
 
 app.post("/webhooks/rain/authorization", async (req, res) => {
   const rawBody = (req as never as { rawBody?: string }).rawBody ?? "";
