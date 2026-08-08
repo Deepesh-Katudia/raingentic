@@ -7,9 +7,9 @@
   "scripts": {
     "dev": "concurrently -n seller,buyers,underwriter,biller,dash -c green,yellow,cyan,blue,magenta \"pnpm -F @float/seller-agent dev\" \"pnpm -F @float/buyer-agents dev\" \"pnpm -F @float/underwriter dev\" \"pnpm -F @float/biller-sim dev\" \"pnpm -F @float/dashboard dev\"",
     "dev:core": "concurrently -n seller,underwriter -c green,cyan \"pnpm -F @float/seller-agent dev\" \"pnpm -F @float/underwriter dev\"",
-    "contracts:build": "pnpm -F @float/contracts build",
-    "contracts:test": "pnpm -F @float/contracts test",
-    "contracts:deploy": "pnpm -F @float/contracts deploy",
+    "contracts:build": "pnpm -F @float/contracts run build",
+    "contracts:test": "pnpm -F @float/contracts run test",
+    "contracts:deploy": "pnpm -F @float/contracts run deploy",
     "smoke:x402": "pnpm -F @float/buyer-agents smoke",
     "typecheck": "tsc -b --pretty false"
   },
