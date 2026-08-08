@@ -13,6 +13,7 @@ import { BillRepo } from "./bills/repo.js";
 import { AgentRepo } from "./agents/repo.js";
 import { createBillsRouter } from "./api/bills.js";
 import { createAgentsRouter } from "./api/agents.js";
+import { Planner, forecastCoverage } from "./planner/index.js";
 import { Store } from "./state.js";
 import { ChainWatcher } from "./watcher.js";
 import { decideWithDeadline, verifySignature, type AuthPolicy } from "./auth.js";
@@ -26,6 +27,7 @@ const treasury = treasuryConfig();
 const db = openDb(treasury.dbPath);
 const billRepo = new BillRepo(db);
 const agentRepo = new AgentRepo(db);
+const planner = new Planner(db, billRepo, treasury.reservationHorizonDays);
 
 const store = new Store({
   earningsWindowSecs: uw.earningsWindowSecs,
@@ -42,11 +44,29 @@ const { client: rain, mode: rainMode } = createRainClient();
 
 // --- card scope sync --------------------------------------------------------
 
+/**
+ * Scope follows the plan: every reserved biller is allowed up to its own
+ * tolerance-adjusted ceiling, so a compromised biller cannot overcharge even
+ * though the card has credit for it.
+ */
 function buildScope(limitMicro: bigint): CardScope {
+  const reservations = planner.active();
+
+  const perMerchantCaps: Record<string, bigint> = {};
+  for (const r of reservations) {
+    perMerchantCaps[r.merchantId] =
+      r.amountMicro + (r.amountMicro * BigInt(r.toleranceBps)) / 10_000n;
+  }
+
+  const allowedMerchants = [
+    ...new Set([...reservations.map((r) => r.merchantId), ...treasury.discretionaryMerchants]),
+  ];
+
   return {
     limitMicro,
-    allowedMerchants: rainCfg.allowedMerchants,
-    allowedMccs: ["5734", "5732", "5943"],
+    allowedMerchants: allowedMerchants.length > 0 ? allowedMerchants : rainCfg.allowedMerchants,
+    allowedMccs: ["5734", "5732", "5943", "6513", "4900"],
+    perMerchantCaps,
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
   };
 }
@@ -101,11 +121,66 @@ app.post("/webhooks/rain/authorization", async (req, res) => {
     return;
   }
 
-  const decision = await decideWithDeadline(store, parsed, policy);
+  const decision = await decideWithDeadline(store, parsed, policy, planner);
   res.json({ approved: decision.approved, reason: decision.reason });
+
+  // Deliberately after the response: the authorization window is the budget,
+  // and history is worth nothing if writing it costs us the decision. The
+  // catch matters for the same reason — the answer is already sent, so a failed
+  // history write must not take the process down with it.
+  try {
+    db.prepare(
+      `INSERT OR REPLACE INTO authorizations
+       (auth_id, merchant_id, amount_micro, approved, reason, elapsed_ms, created_at)
+       VALUES (?,?,?,?,?,?,?)`,
+    ).run(
+      parsed.authId,
+      parsed.merchantId,
+      String(parsed.amountMicro),
+      decision.approved ? 1 : 0,
+      decision.reason,
+      decision.elapsedMs,
+      Date.now(),
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[underwriter] failed to persist authorization ${parsed.authId}: ${message}`);
+  }
 });
 
 app.get("/api/state", (_req, res) => res.json(store.snapshot()));
+
+app.get("/api/plan", (_req, res) => {
+  const forecast = forecastCoverage(
+    billRepo.list(true),
+    store.limitState.limitMicro,
+    store.pooledProfile.earnedInWindowMicro,
+    uw.earningsWindowSecs,
+    new Date(),
+    treasury.reservationHorizonDays,
+  );
+
+  res.json({
+    reservedMicro: store.reservedMicro.toString(),
+    discretionaryMicro: store.discretionaryMicro.toString(),
+    reservations: planner.active().map((r) => ({
+      billId: r.billId,
+      merchantId: r.merchantId,
+      amountMicro: r.amountMicro.toString(),
+      dueAt: r.dueAt,
+      status: r.status,
+    })),
+    forecast: forecast.map((f) => ({
+      billId: f.billId,
+      name: f.name,
+      dueAt: f.dueAt,
+      requiredMicro: f.requiredMicro.toString(),
+      projectedMicro: f.projectedMicro.toString(),
+      covered: f.covered,
+      shortfallMicro: f.shortfallMicro.toString(),
+    })),
+  });
+});
 
 app.get("/api/stream", (req, res) => {
   res.set({
@@ -179,6 +254,14 @@ app.listen(uw.port, async () => {
 
   watcher?.start();
 
+  // Reservations are recomputed wholesale on every tick, so the plan tracks a
+  // limit that rises with income and falls when it stops.
+  setInterval(() => {
+    const budget = store.limitState.limitMicro - store.limitState.outstandingMicro;
+    planner.plan(budget > 0n ? budget : 0n);
+    store.setReservations(planner.active());
+  }, treasury.plannerIntervalMs);
+
   const issued = await rain.issueCard(buildScope(store.availableMicro));
   cardId = issued.cardId;
   lastLast4 = issued.last4;
@@ -188,7 +271,7 @@ app.listen(uw.port, async () => {
 
   if (rain instanceof MockRainClient) {
     rain.startSyntheticAuths(rainCfg.mockAuthIntervalMs, (r) =>
-      decideWithDeadline(store, r, policy),
+      decideWithDeadline(store, r, policy, planner),
     );
     console.log(`[underwriter] synthetic auths every ${rainCfg.mockAuthIntervalMs}ms`);
   }

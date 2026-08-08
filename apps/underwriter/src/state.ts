@@ -1,6 +1,8 @@
 import type { Response } from "express";
 import type { CardSummary, LimitState, PooledProfile, StateSnapshot, StreamEvent } from "@float/shared";
+import { subFloor0 } from "@float/shared";
 import { computeLimit, type LimitParams } from "./limit.js";
+import type { PlannedReservation } from "./planner/reservations.js";
 
 const MAX_EVENTS = 12;
 
@@ -28,6 +30,7 @@ export class Store {
     availableMicro: 0n,
   };
   private card: CardSummary | null = null;
+  private reservations: PlannedReservation[] = [];
   private events: StreamEvent[] = [];
   private clients = new Set<Response>();
   private incomeRunning = false;
@@ -44,11 +47,34 @@ export class Store {
     return this.limit.availableMicro;
   }
 
+  /** Sum of funds claimed by bill reservations. */
+  get reservedMicro(): bigint {
+    return this.reservations.reduce((sum, r) => sum + r.amountMicro, 0n);
+  }
+
+  /**
+   * Credit available for charges that do not match a reservation. Reserved
+   * money is excluded so an impulse purchase cannot consume the rent.
+   */
+  get discretionaryMicro(): bigint {
+    return subFloor0(this.limit.limitMicro, this.limit.outstandingMicro + this.reservedMicro);
+  }
+
   get currentCard(): CardSummary | null {
     return this.card;
   }
 
+  /** Read-only view of the pooled profile, for the coverage forecast. */
+  get pooledProfile(): PooledProfile {
+    return this.profile;
+  }
+
   // --- writes ---------------------------------------------------------------
+
+  /** Called by the planner loop, and by the auth path when one is consumed. */
+  setReservations(reservations: PlannedReservation[]): void {
+    this.reservations = reservations;
+  }
 
   /** Called by the chain watcher on every poll that produced a change. */
   setProfile(profile: PooledProfile): void {

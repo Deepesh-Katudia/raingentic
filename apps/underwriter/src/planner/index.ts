@@ -1,5 +1,6 @@
 import type { Db } from "../db/index.js";
 import type { BillRepo } from "../bills/repo.js";
+import { nextDueAt } from "./dueDates.js";
 import { allocate, type PlannedReservation } from "./reservations.js";
 
 export { nextDueAt } from "./dueDates.js";
@@ -31,9 +32,31 @@ export class Planner {
     return this.current.reduce((sum, r) => sum + r.amountMicro, 0n);
   }
 
+  /**
+   * Bills already charged for their current cycle, keyed `billId:dueAt`.
+   *
+   * Nothing on a bill records "last paid", so without this the plan would
+   * re-reserve a bill seconds after its charge was approved: `consume()` drops
+   * it from memory, but the bill row is still active with the same due date. The
+   * consumed reservation row is the only record that this cycle is settled, and
+   * it keeps its `due_at`, so a new cycle re-reserves on its own.
+   */
+  private consumedCycles(): Set<string> {
+    const rows = this.db
+      .prepare("SELECT bill_id, due_at FROM reservations WHERE status = 'consumed'")
+      .all() as unknown as { bill_id: number; due_at: number }[];
+
+    return new Set(rows.map((r) => `${r.bill_id}:${r.due_at}`));
+  }
+
   /** Recompute the whole plan from scratch and replace the persisted rows. */
   plan(budgetMicro: bigint, now = new Date()): PlannedReservation[] {
-    const next = allocate(this.billRepo.list(true), budgetMicro, now, this.horizonDays);
+    const settled = this.consumedCycles();
+    const bills = this.billRepo
+      .list(true)
+      .filter((b) => !settled.has(`${b.id}:${nextDueAt(b, now)}`));
+
+    const next = allocate(bills, budgetMicro, now, this.horizonDays);
 
     // Only the persisted columns are compared. `dueAt` is one of them: when a
     // month rolls over, every other field can be identical while the stored

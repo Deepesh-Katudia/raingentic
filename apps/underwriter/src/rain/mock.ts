@@ -52,14 +52,28 @@ export class MockRainClient implements RainClient {
   ): void {
     if (intervalMs <= 0 || this.timer) return;
     this.timer = setInterval(() => {
+      const scope = [...this.cards.values()][0]?.scope;
+      const merchants = Object.keys(scope?.perMerchantCaps ?? {});
+
+      // Prefer charging a real reserved merchant so the reservation path is
+      // exercised; fall back to the discretionary merchant otherwise.
+      const merchantId =
+        merchants.length > 0 && Math.random() < 0.5
+          ? merchants[Math.floor(Math.random() * merchants.length)]!
+          : MERCHANT;
+
+      // A reserved merchant charges its capped amount — that is the bill
+      // arriving. Everything else is an unpredictable discretionary purchase.
+      const cap = scope?.perMerchantCaps[merchantId];
       const span = MAX_PURCHASE_MICRO - MIN_PURCHASE_MICRO;
-      const amountMicro =
+      const random =
         MIN_PURCHASE_MICRO + (BigInt(Math.floor(Math.random() * 1_000_000)) * span) / 1_000_000n;
+      const amountMicro = cap ?? random;
 
       void decide({
         authId: `mock_auth_${Date.now()}`,
         amountMicro,
-        merchantId: MERCHANT,
+        merchantId,
         mcc: MCC,
       });
     }, intervalMs);

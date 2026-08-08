@@ -2,6 +2,8 @@ export interface CardScope {
   limitMicro: bigint;
   allowedMerchants: string[];
   allowedMccs: string[];
+  /** Per-merchant ceiling in micro-USD, keyed by merchant id. */
+  perMerchantCaps: Record<string, bigint>;
   expiresAt: Date;
 }
 
