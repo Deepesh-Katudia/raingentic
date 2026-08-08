@@ -32,3 +32,21 @@ test("opening twice does not error on existing tables", () => {
     assert.ok(names.includes(expected), `missing table ${expected}`);
   }
 });
+
+test("openDb(':memory:') applies schema, persists within the connection, and enables foreign keys", () => {
+  const db = openDb(":memory:");
+
+  db.prepare(
+    "INSERT INTO bills (name, merchant_id, mcc, amount_micro, cadence, due_day, priority) VALUES (?,?,?,?,?,?,?)",
+  ).run("Internet", "mrc_isp", "4814", "8000000", "monthly", 1, 1);
+  const rows = db.prepare("SELECT name, amount_micro FROM bills").all();
+
+  const fk = db.prepare("PRAGMA foreign_keys").get() as { foreign_keys: number };
+
+  db.close();
+
+  assert.equal(rows.length, 1);
+  assert.equal((rows[0] as { name: string }).name, "Internet");
+  assert.equal((rows[0] as { amount_micro: string }).amount_micro, "8000000");
+  assert.equal(fk.foreign_keys, 1);
+});
