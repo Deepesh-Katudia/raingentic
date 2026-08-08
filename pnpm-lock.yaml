@@ -21,6 +21,19 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  apps/biller-sim:
+    dependencies:
+      '@float/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      express:
+        specifier: ^4.21.2
+        version: 4.22.2
+    devDependencies:
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+
   apps/buyer-agents:
     dependencies:
       '@float/shared':

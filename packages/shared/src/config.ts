@@ -212,3 +212,13 @@ export function buyersConfig() {
 export function buyersControlUrl(): string {
   return opt("BUYER_CONTROL_URL", `http://localhost:${reqInt("BUYER_CONTROL_PORT", 3002)}`);
 }
+
+export function billerSimConfig() {
+  return {
+    port: reqInt("BILLER_SIM_PORT", 3004),
+    underwriterUrl: opt("UNDERWRITER_URL", `http://localhost:${reqInt("UNDERWRITER_PORT", 3003)}`),
+    webhookSecret: opt("RAIN_WEBHOOK_SECRET", ""),
+    /** How often to check whether a bill has come due. */
+    checkIntervalMs: reqInt("BILLER_CHECK_INTERVAL_MS", 30_000),
+  };
+}
