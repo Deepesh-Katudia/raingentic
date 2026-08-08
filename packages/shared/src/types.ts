@@ -60,6 +60,19 @@ export interface CardSummary {
   limitMicro: bigint;
 }
 
+/** Whether projected income covers a bill by the time it is due. */
+export interface CoverageForecast {
+  billId: number;
+  name: string;
+  dueAt: number;
+  /** Cumulative obligation of this bill and everything higher priority. */
+  requiredMicro: bigint;
+  /** Current limit plus income projected to arrive before the due date. */
+  projectedMicro: bigint;
+  covered: boolean;
+  shortfallMicro: bigint;
+}
+
 /** Events pushed to the dashboard over SSE. */
 export type StreamEvent =
   | { type: "receipt"; payer: string; amountMicro: string; timestamp: number }
