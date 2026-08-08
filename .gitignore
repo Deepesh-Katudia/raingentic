@@ -5,3 +5,4 @@ dist/
 packages/contracts/out/
 apps/dashboard/dist/
 .DS_Store
+.superpowers/
