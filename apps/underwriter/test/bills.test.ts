@@ -90,6 +90,36 @@ test("updates an amount and keeps it a bigint", () => {
   assert.equal(updated?.amountMicro, 1_500_000_000n);
 });
 
+test("update() rejects a cadence/dueDay combination it would create", () => {
+  const r = repo();
+  // dueDay 25 is valid for monthly, but out of range once cadence flips to weekly.
+  const created = r.create(validateOrThrow({ ...VALID, dueDay: 25 }));
+
+  assert.throws(() => r.update(created.id, { cadence: "weekly" }));
+
+  // The bad patch must not have been persisted.
+  const unchanged = r.get(created.id);
+  assert.equal(unchanged?.cadence, "monthly");
+  assert.equal(unchanged?.dueDay, 25);
+});
+
+test("rejects an amount over the maximum", () => {
+  const result = validateBillInput({ ...VALID, amountMicro: "1000000000001" });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.error, /amountMicro/);
+});
+
+test("accepts an amount at the maximum", () => {
+  const result = validateBillInput({ ...VALID, amountMicro: "1000000000000" });
+  assert.equal(result.ok, true);
+});
+
+test("rejects an over-length name", () => {
+  const result = validateBillInput({ ...VALID, name: "a".repeat(201) });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.error, /name/);
+});
+
 function validateOrThrow(raw: unknown) {
   const res = validateBillInput(raw);
   if (!res.ok) throw new Error(res.error);

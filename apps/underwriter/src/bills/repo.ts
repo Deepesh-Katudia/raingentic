@@ -1,5 +1,6 @@
 import type { Db } from "../db/index.js";
 import type { Bill, Cadence, NewBill } from "./types.js";
+import { checkBillInvariants } from "./rules.js";
 
 interface BillRow {
   id: number;
@@ -66,11 +67,24 @@ export class BillRepo {
     return (this.db.prepare(sql).all() as unknown as BillRow[]).map(toBill);
   }
 
+  /**
+   * Task 3's PATCH endpoint validates the merged result before calling this,
+   * so in practice the HTTP boundary already guards against a bad patch.
+   * This check is defense-in-depth on the repo itself: any other caller —
+   * present or future — that isn't that endpoint must not be able to
+   * silently persist a bill that violates its own invariants (e.g.
+   * patching `cadence` to "weekly" while `dueDay` stays at 25). Throws
+   * rather than returning null, matching `create()`'s existing pattern of
+   * throwing on a state it refuses to write.
+   */
   update(id: number, patch: Partial<NewBill>): Bill | null {
     const existing = this.get(id);
     if (!existing) return null;
 
     const next = { ...existing, ...patch };
+    const invariantError = checkBillInvariants(next);
+    if (invariantError) throw new Error(`invalid bill update: ${invariantError}`);
+
     this.db
       .prepare(
         `UPDATE bills SET name=?, merchant_id=?, mcc=?, amount_micro=?, cadence=?,
