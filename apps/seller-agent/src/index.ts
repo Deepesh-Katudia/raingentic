@@ -1,95 +1,118 @@
 import express from "express";
 import { paymentMiddleware } from "@x402/express";
-import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
+import { HTTPFacilitatorClient, x402ResourceServer, type RouteConfig } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
+import { privateKeyToAccount } from "viem/accounts";
 import {
+  agentsConfig,
   creditFileAddressOptional,
   formatUsdSymbol,
   sellerConfig,
   x402Config,
 } from "@float/shared";
-import { lookupPrice, serializePriceResult, SKUS } from "./fixtures.js";
+import { SERVICE_HANDLERS } from "./services.js";
 import { ReceiptRecorder } from "./receipts.js";
 
 const seller = sellerConfig();
 const x402 = x402Config();
 const creditFile = creditFileAddressOptional();
-
-// The recorder is optional so the x402 path can be proven before the contract
-// exists. Once CREDIT_FILE_ADDRESS is set, receipts start landing onchain.
-const recorder = creditFile
-  ? new ReceiptRecorder(seller.privateKey, creditFile, seller.flushIntervalMs)
-  : null;
-recorder?.start();
+const { services } = agentsConfig();
 
 const app = express();
+
+/**
+ * Each service is its own agent identity with its own wallet and its own
+ * nonce-serialized receipt queue. CreditFile keys receipts by msg.sender, so
+ * distinct agents require distinct wallets — writing them all from one wallet
+ * would destroy the "provably earned by this agent" property.
+ */
+const agents = services.map((svc) => {
+  const account = privateKeyToAccount(svc.privateKey);
+  const spec = SERVICE_HANDLERS[svc.key];
+  if (!spec) throw new Error(`No handler registered for service "${svc.key}"`);
+
+  const recorder = creditFile
+    ? new ReceiptRecorder(svc.privateKey, creditFile, seller.flushIntervalMs)
+    : null;
+  recorder?.start();
+
+  return { ...svc, address: account.address, route: spec.route, handler: spec.handler, recorder };
+});
+
+const byPayTo = new Map(agents.map((a) => [a.address.toLowerCase(), a]));
+if (byPayTo.size !== agents.length) {
+  // Two services on one wallet would silently merge into one onchain identity
+  // and misattribute every receipt after the first.
+  throw new Error("Two services share a wallet; give each agent its own AGENT_*_PRIVATE_KEY");
+}
 
 const resourceServer = new x402ResourceServer(
   new HTTPFacilitatorClient({ url: x402.facilitatorUrl }),
 )
   .register(x402.network, new ExactEvmScheme())
   .onAfterSettle(async (ctx) => {
-    // Settlement is confirmed at this point. Queue the receipt and return
-    // immediately — the chain write happens on the flusher, off this path.
     const payer = ctx.result.payer as `0x${string}` | undefined;
     const amount = ctx.result.amount;
-    if (!payer || amount === undefined) return;
+    const payTo = ctx.requirements.payTo.toLowerCase();
+    if (!payer || amount === undefined || !payTo) return;
+
+    // Route the receipt to the agent that was actually paid.
+    const agent = byPayTo.get(payTo);
+    if (!agent) return;
 
     const amountMicro = BigInt(amount);
-    console.log(`SALE payer=${payer} amount=${amountMicro}`);
-    recorder?.enqueue(payer, amountMicro);
+    console.log(`SALE service=${agent.key} agent=${agent.address} payer=${payer} amount=${amountMicro}`);
+    agent.recorder?.enqueue(payer, amountMicro);
   });
 
 /**
- * Price is expressed as an explicit asset + atomic amount rather than a "$0.05"
- * string. That avoids depending on the scheme's default-stablecoin lookup for
- * Monad, and keeps the advertised price identical to the micro-USD integer we
- * record onchain — USDC has 6 decimals, so the units are the same.
+ * Price is an explicit asset + atomic amount rather than a "$0.05" string. That
+ * avoids the scheme's default-stablecoin lookup for Monad and keeps the
+ * advertised price identical to the micro-USD integer recorded onchain.
  */
-const routes = {
-  "GET /price": {
-    accepts: {
-      scheme: "exact",
-      network: x402.network,
-      payTo: seller.address,
-      price: {
-        asset: x402.assetAddress,
-        amount: x402.pricePerCallMicro.toString(),
+const routes = Object.fromEntries(
+  agents.map((a): [string, RouteConfig] => [
+    `GET ${a.route}`,
+    {
+      accepts: {
+        scheme: "exact",
+        network: x402.network,
+        payTo: a.address,
+        price: { asset: x402.assetAddress, amount: a.priceMicro.toString() },
       },
+      resource: `${seller.publicUrl}${a.route}`,
+      description: `${a.key} service`,
+      mimeType: "application/json",
     },
-    resource: `${seller.publicUrl}/price`,
-    description: "Best-price lookup across five retailers for a given SKU.",
-    mimeType: "application/json",
-  },
-};
+  ]),
+);
 
 app.use(paymentMiddleware(routes, resourceServer));
 
-app.get("/price", (req, res) => {
-  const sku = typeof req.query.sku === "string" ? req.query.sku : "";
-  const result = lookupPrice(sku);
-  if (!result) {
-    res.status(404).json({ error: "unknown sku", known: SKUS });
-    return;
-  }
-  res.json(serializePriceResult(result));
-});
+for (const agent of agents) {
+  app.get(agent.route, (req, res) => {
+    const result = agent.handler(req);
+    res.status(result.status).json(result.body);
+  });
+}
 
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
     creditFile: creditFile ?? null,
-    queueDepth: recorder?.queueDepth ?? 0,
+    agents: agents.map((a) => ({
+      key: a.key,
+      address: a.address,
+      priceMicro: a.priceMicro.toString(),
+      queueDepth: a.recorder?.queueDepth ?? 0,
+    })),
   });
 });
 
 app.listen(seller.port, () => {
-  console.log(
-    `[seller] :${seller.port} price=${formatUsdSymbol(x402.pricePerCallMicro)} ` +
-      `network=${x402.network} payTo=${seller.address}`,
-  );
-  console.log(
-    `[seller] creditFile=${creditFile ?? "(unset — receipts not recorded yet)"} ` +
-      `facilitator=${x402.facilitatorUrl}`,
-  );
+  console.log(`[seller] :${seller.port} network=${x402.network}`);
+  for (const a of agents) {
+    console.log(`[seller]   ${a.route} ${formatUsdSymbol(a.priceMicro)} agent=${a.address}`);
+  }
+  console.log(`[seller] creditFile=${creditFile ?? "(unset — receipts not recorded yet)"}`);
 });

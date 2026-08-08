@@ -98,6 +98,35 @@ export function sellerConfig() {
   };
 }
 
+/** USDC has 6 decimals, so nothing below 1 micro-USD can settle onchain. */
+const MIN_PRICE_MICRO = 1n;
+
+/**
+ * The earning agents. Each service is its own onchain identity with its own
+ * wallet, because CreditFile keys receipts by msg.sender — sharing one wallet
+ * would collapse them into a single indistinguishable earner.
+ */
+export function agentsConfig() {
+  const defs = [
+    { key: "price", keyVar: "AGENT_PRICE_PRIVATE_KEY", priceVar: "PRICE_MICRO_PRICE", fallback: "50000" },
+    { key: "scrape", keyVar: "AGENT_SCRAPE_PRIVATE_KEY", priceVar: "PRICE_MICRO_SCRAPE", fallback: "20000" },
+    { key: "shop", keyVar: "AGENT_SHOP_PRIVATE_KEY", priceVar: "PRICE_MICRO_SHOP", fallback: "100000" },
+  ];
+
+  const services = defs.map((d) => {
+    const priceMicro = reqMicro(d.priceVar, d.fallback);
+    if (priceMicro < MIN_PRICE_MICRO) {
+      throw new Error(
+        `${d.priceVar}=${priceMicro} is below the 1 micro-USD settlement floor; ` +
+          `USDC has 6 decimals and cannot move less than $0.000001`,
+      );
+    }
+    return { key: d.key, privateKey: reqPrivateKey(d.keyVar), priceMicro };
+  });
+
+  return { services };
+}
+
 /** CAIP-2 network id, e.g. "eip155:10143". x402 types require this shape. */
 export type Caip2Network = `${string}:${string}`;
 
