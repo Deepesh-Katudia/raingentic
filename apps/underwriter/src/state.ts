@@ -1,5 +1,5 @@
 import type { Response } from "express";
-import type { CardSummary, LimitState, Profile, StateSnapshot, StreamEvent } from "@float/shared";
+import type { CardSummary, LimitState, PooledProfile, StateSnapshot, StreamEvent } from "@float/shared";
 import { computeLimit, type LimitParams } from "./limit.js";
 
 const MAX_EVENTS = 12;
@@ -14,10 +14,11 @@ const MAX_EVENTS = 12;
  * possible at all.
  */
 export class Store {
-  private profile: Profile = {
+  private profile: PooledProfile = {
     earnedInWindowMicro: 0n,
-    distinctPayers: 0,
     totalEarnedMicro: 0n,
+    distinctPayers: 0,
+    perAgent: [],
     readAt: 0,
   };
   private limit: LimitState = {
@@ -50,7 +51,7 @@ export class Store {
   // --- writes ---------------------------------------------------------------
 
   /** Called by the chain watcher on every poll that produced a change. */
-  setProfile(profile: Profile): void {
+  setProfile(profile: PooledProfile): void {
     this.profile = profile;
     this.recompute();
   }

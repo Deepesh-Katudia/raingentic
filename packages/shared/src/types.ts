@@ -14,6 +14,24 @@ export interface Profile {
   readAt: number;
 }
 
+/** One agent's slice of the treasury, read from CreditFile. */
+export interface AgentProfile {
+  address: string;
+  earnedInWindowMicro: bigint;
+  totalEarnedMicro: bigint;
+  /** Distinct payer addresses seen in the window, for union-based diversity. */
+  payers: string[];
+}
+
+/** All agents' earnings combined. This is what the limit engine consumes. */
+export interface PooledProfile {
+  earnedInWindowMicro: bigint;
+  totalEarnedMicro: bigint;
+  distinctPayers: number;
+  perAgent: AgentProfile[];
+  readAt: number;
+}
+
 /** Output of the limit engine. */
 export interface LimitState {
   projectedMicro: bigint;

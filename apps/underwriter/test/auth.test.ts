@@ -18,6 +18,7 @@ function storeEarning(earnedInWindowMicro: bigint, distinctPayers: number): Stor
     earnedInWindowMicro,
     distinctPayers,
     totalEarnedMicro: earnedInWindowMicro,
+    perAgent: [],
     readAt: Date.now(),
   });
   return store;

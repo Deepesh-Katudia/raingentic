@@ -83,10 +83,8 @@ let lastLast4 = "0000";
 const app = express();
 app.use(express.json({ verify: (req, _res, buf) => ((req as never as { rawBody: string }).rawBody = buf.toString("utf8")) }));
 
-// Per-agent earnings are pooled by the chain watcher in Task 4; until then the
-// registry reports every agent as having earned nothing.
 app.use("/api/bills", createBillsRouter(billRepo));
-app.use("/api/agents", createAgentsRouter(agentRepo, () => ({})));
+app.use("/api/agents", createAgentsRouter(agentRepo, () => watcher?.perAgentEarnings() ?? {}));
 
 app.post("/webhooks/rain/authorization", async (req, res) => {
   const rawBody = (req as never as { rawBody?: string }).rawBody ?? "";
@@ -153,7 +151,13 @@ app.get("/health", (_req, res) =>
 // — which is demo outcome #1 anyway.
 const creditFile = creditFileAddressOptional();
 const watcher = creditFile
-  ? new ChainWatcher(creditFile, seller.address, uw.earningsWindowSecs, uw.pollIntervalMs, store)
+  ? new ChainWatcher(
+      creditFile,
+      () => agentRepo.list(true).map((a) => a.address),
+      uw.earningsWindowSecs,
+      uw.pollIntervalMs,
+      store,
+    )
   : null;
 
 app.listen(uw.port, async () => {
@@ -165,6 +169,13 @@ app.listen(uw.port, async () => {
     `[underwriter] window=${uw.earningsWindowSecs}s horizon=${uw.horizonSecs}s ` +
       `cap=${formatUsdSymbol(uw.capMicro)} authTimeout=${uw.authTimeoutMs}ms`,
   );
+
+  // A fresh install has an empty registry, which would leave the watcher with
+  // nothing to read. The seller is the one agent we always know about.
+  if (agentRepo.list().length === 0) {
+    agentRepo.upsert({ address: seller.address, name: "price", kind: "price", active: true });
+    console.log(`[underwriter] seeded agent registry with ${seller.address}`);
+  }
 
   watcher?.start();
 
