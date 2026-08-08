@@ -1,0 +1,16 @@
+{
+  "name": "@float/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsx scripts/compile.ts",
+    "test": "tsx scripts/test.ts",
+    "deploy": "tsx scripts/deploy.ts"
+  },
+  "dependencies": {
+    "@float/shared": "workspace:*",
+    "solc": "0.8.24",
+    "viem": "^2.21.55"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@float/buyer-agents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "smoke": "tsx src/smoke.ts"
+  },
+  "dependencies": {
+    "@float/shared": "workspace:*",
+    "@x402/core": "^2.21.0",
+    "@x402/evm": "^2.21.0",
+    "@x402/fetch": "^2.21.0",
+    "express": "^4.21.2",
+    "viem": "^2.21.55"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21"
+  }
+}
