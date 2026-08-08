@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #05070a;
+  --surface: #0d1117;
+  --line: #1c2531;
+  --dim: #6b7a8f;
+  --text: #e6edf3;
+  --green: #3fdc84;
+  --red: #ff5c5c;
+  --amber: #ffc247;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--ink);
+  color: var(--text);
+  overflow: hidden;
+}
+
+body {
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* A faint vignette so the projector's washed-out edges don't flatten it. */
+  background-image: radial-gradient(ellipse at 50% 0%, #101822 0%, var(--ink) 70%);
+}
+
+.numeral {
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+}
+
+.label {
+  font-size: 0.8rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.panel {
+  background: linear-gradient(180deg, var(--surface) 0%, #0a0e14 100%);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+@keyframes declineFlash {
+  0% { background-color: rgba(255, 92, 92, 0.35); }
+  100% { background-color: transparent; }
+}
+
+.flash-decline {
+  animation: declineFlash 900ms ease-out;
+}
+
+.gauge-fill {
+  transition: width 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 300ms ease;
+}

@@ -5,81 +5,230 @@
  */
 export const creditFileAbi = [
   {
-    type: "function",
-    name: "recordReceipt",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "payer", type: "address" },
-      { name: "amountMicro", type: "uint64" },
-    ],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "recordReceiptBatch",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "payers", type: "address[]" },
-      { name: "amountsMicro", type: "uint64[]" },
-    ],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "receiptCount",
-    stateMutability: "view",
-    inputs: [{ name: "agent", type: "address" }],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    type: "function",
-    name: "getReceipts",
-    stateMutability: "view",
-    inputs: [
-      { name: "agent", type: "address" },
-      { name: "sinceTs", type: "uint64" },
-    ],
-    outputs: [
+    "anonymous": false,
+    "inputs": [
       {
-        name: "",
-        type: "tuple[]",
-        components: [
-          { name: "payer", type: "address" },
-          { name: "amountMicro", type: "uint64" },
-          { name: "timestamp", type: "uint64" },
-        ],
+        "indexed": true,
+        "internalType": "address",
+        "name": "agent",
+        "type": "address"
       },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "payer",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "amountMicro",
+        "type": "uint64"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "timestamp",
+        "type": "uint64"
+      }
     ],
+    "name": "ReceiptRecorded",
+    "type": "event"
   },
   {
-    type: "function",
-    name: "getProfile",
-    stateMutability: "view",
-    inputs: [
-      { name: "agent", type: "address" },
-      { name: "windowSecs", type: "uint64" },
+    "inputs": [],
+    "name": "MAX_SCAN",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
     ],
-    outputs: [
-      { name: "earnedInWindowMicro", type: "uint64" },
-      { name: "distinctPayers", type: "uint32" },
-      { name: "totalEarned", type: "uint64" },
-    ],
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    type: "function",
-    name: "totalEarnedMicro",
-    stateMutability: "view",
-    inputs: [{ name: "", type: "address" }],
-    outputs: [{ name: "", type: "uint256" }],
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "agent",
+        "type": "address"
+      },
+      {
+        "internalType": "uint64",
+        "name": "windowSecs",
+        "type": "uint64"
+      }
+    ],
+    "name": "getProfile",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "earnedInWindowMicro",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint32",
+        "name": "distinctPayers",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint64",
+        "name": "totalEarned",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    type: "event",
-    name: "ReceiptRecorded",
-    inputs: [
-      { name: "agent", type: "address", indexed: true },
-      { name: "payer", type: "address", indexed: true },
-      { name: "amountMicro", type: "uint64", indexed: false },
-      { name: "timestamp", type: "uint64", indexed: false },
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "agent",
+        "type": "address"
+      },
+      {
+        "internalType": "uint64",
+        "name": "sinceTs",
+        "type": "uint64"
+      }
     ],
+    "name": "getReceipts",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "payer",
+            "type": "address"
+          },
+          {
+            "internalType": "uint64",
+            "name": "amountMicro",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint64",
+            "name": "timestamp",
+            "type": "uint64"
+          }
+        ],
+        "internalType": "struct CreditFile.Receipt[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "agent",
+        "type": "address"
+      }
+    ],
+    "name": "receiptCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "receipts",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "payer",
+        "type": "address"
+      },
+      {
+        "internalType": "uint64",
+        "name": "amountMicro",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "timestamp",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "payer",
+        "type": "address"
+      },
+      {
+        "internalType": "uint64",
+        "name": "amountMicro",
+        "type": "uint64"
+      }
+    ],
+    "name": "recordReceipt",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address[]",
+        "name": "payers",
+        "type": "address[]"
+      },
+      {
+        "internalType": "uint64[]",
+        "name": "amountsMicro",
+        "type": "uint64[]"
+      }
+    ],
+    "name": "recordReceiptBatch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "totalEarnedMicro",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
 ] as const;
