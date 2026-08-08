@@ -44,6 +44,11 @@ export function createAgentsRouter(
   });
 
   router.delete("/:address", (req, res) => {
+    if (!ADDRESS_RE.test(req.params.address)) {
+      res.status(400).json({ error: "address must be a 0x-prefixed 20-byte address" });
+      return;
+    }
+
     if (!repo.deactivate(req.params.address)) {
       res.status(404).json({ error: "no such agent" });
       return;

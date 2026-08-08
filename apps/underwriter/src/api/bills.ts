@@ -59,6 +59,11 @@ export function createBillsRouter(repo: BillRepo): Router {
 
   router.delete("/:id", (req, res) => {
     const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      res.status(400).json({ error: "id must be an integer" });
+      return;
+    }
+
     if (!repo.deactivate(id)) {
       res.status(404).json({ error: "no such bill" });
       return;
