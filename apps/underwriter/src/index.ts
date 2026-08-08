@@ -29,11 +29,9 @@ const billRepo = new BillRepo(db);
 const agentRepo = new AgentRepo(db);
 const planner = new Planner(db, billRepo, treasury.reservationHorizonDays);
 
-const store = new Store({
-  earningsWindowSecs: uw.earningsWindowSecs,
-  horizonSecs: uw.horizonSecs,
-  capMicro: uw.capMicro,
-});
+// The limit is cumulative earned money, capped — the window and horizon are
+// still read from config, but only the coverage forecast uses them now.
+const store = new Store({ capMicro: uw.capMicro });
 
 const policy: AuthPolicy = {
   allowedMerchants: rainCfg.allowedMerchants,

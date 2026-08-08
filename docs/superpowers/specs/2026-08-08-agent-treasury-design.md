@@ -157,7 +157,24 @@ distinctPayers      = size of the union of payers across agents
 
 `distinctPayers` uses the union, not the sum, so three agents each serving the same single payer does not score as diversity that is not there. This requires payer identity, not just a count, so the watcher reads `getReceipts` for the window alongside `getProfile`.
 
-The existing limit engine is unchanged — projection over the horizon, diversity discount, cap. It simply consumes the pooled profile.
+### 6.1 The limit is accrued earnings, not projected income
+
+FLOAT's original engine projected the trailing window forward over a horizon and discounted for payer concentration. That answered "how fast is this agent earning right now", which suited a three-minute stage demo and suits nothing else.
+
+The limit is now **cumulative earnings, capped**:
+
+```
+limitMicro = min(totalEarnedMicro, CAP_MICRO)
+```
+
+This is a debit model, not a credit line. Money is spendable because it was already earned and recorded onchain, not because more is predicted. It matches how the card is actually backed — spending power derives from collateral, so promising more than has been banked would be writing a cheque the treasury cannot cover.
+
+Two consequences are deliberate:
+
+- **No payer-diversity discount.** Concentration is a risk to *future* income, and there is no future income in this number. `distinctPayers` is still tracked and reported; it no longer gates spending.
+- **No decay.** Cumulative earnings never fall, so the limit moves down only when money is spent. An agent that stops earning keeps what it already made.
+
+`EARNINGS_WINDOW_SECS` and `HORIZON_SECS` remain in config because the coverage forecast still needs an earn rate to project against due dates. The limit itself no longer reads them.
 
 ---
 

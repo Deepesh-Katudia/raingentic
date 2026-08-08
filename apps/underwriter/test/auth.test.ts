@@ -6,11 +6,7 @@ import { openDb } from "../src/db/index.js";
 import { BillRepo } from "../src/bills/repo.js";
 import { Planner } from "../src/planner/index.js";
 
-const PARAMS = {
-  earningsWindowSecs: 120,
-  horizonSecs: 600,
-  capMicro: 200_000_000n,
-};
+const PARAMS = { capMicro: 200_000_000n };
 
 const POLICY: AuthPolicy = { allowedMerchants: ["*"], timeoutMs: 800 };
 
@@ -43,28 +39,39 @@ test("declines every authorization when nothing has been earned", () => {
   assert.match(decision.reason, /insufficient earned credit/);
 });
 
-test("approves an amount within the earned limit and declines one above it", () => {
-  // $2 earned over 120s projects to $10 across a 600s horizon, discounted to $6
-  // because a single payer scores the lowest diversity multiplier (0.6).
-  const store = storeEarning(2_000_000n, 1);
-  assert.equal(store.availableMicro, 6_000_000n);
+test("spends down accumulated earnings and declines once they run out", () => {
+  // $10 earned is $10 spendable — the limit is banked money, not a projection.
+  const store = storeEarning(10_000_000n, 1);
+  assert.equal(store.availableMicro, 10_000_000n);
 
   const approved = decideAuth(store, auth(4_000_000n), POLICY, NO_RESERVATIONS);
   assert.equal(approved.approved, true);
+  assert.equal(store.availableMicro, 6_000_000n);
 
-  // $4 is now outstanding, leaving $2 — the next $4 must decline.
+  decideAuth(store, auth(4_000_000n), POLICY, NO_RESERVATIONS);
   assert.equal(store.availableMicro, 2_000_000n);
+
+  // $2 left cannot cover another $4.
   const declined = decideAuth(store, auth(4_000_000n), POLICY, NO_RESERVATIONS);
   assert.equal(declined.approved, false);
 });
 
-test("counts payer diversity toward the limit", () => {
-  const concentrated = storeEarning(2_000_000n, 1);
-  const diverse = storeEarning(2_000_000n, 5);
+test("payer diversity does not change what has already been earned", () => {
+  // Concentration is a risk to future income, and this number contains none.
+  const concentrated = storeEarning(10_000_000n, 1);
+  const diverse = storeEarning(10_000_000n, 5);
 
-  // 0.6x at one payer, 1.0x at five or more.
-  assert.equal(concentrated.availableMicro, 6_000_000n);
+  assert.equal(concentrated.availableMicro, 10_000_000n);
   assert.equal(diverse.availableMicro, 10_000_000n);
+});
+
+test("caps the limit however much has been earned", () => {
+  // $500 earned against a $200 cap.
+  const store = storeEarning(500_000_000n, 5);
+
+  assert.equal(store.limitState.projectedMicro, 500_000_000n);
+  assert.equal(store.limitState.limitMicro, 200_000_000n);
+  assert.equal(store.availableMicro, 200_000_000n);
 });
 
 test("declines a merchant outside the card scope even when funds are available", () => {

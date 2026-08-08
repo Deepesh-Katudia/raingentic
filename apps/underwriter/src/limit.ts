@@ -1,38 +1,42 @@
-import type { LimitState, Profile } from "@float/shared";
+import type { LimitState, PooledProfile } from "@float/shared";
 import { subFloor0 } from "@float/shared";
 
 export interface LimitParams {
-  earningsWindowSecs: number;
-  horizonSecs: number;
+  /** Hard ceiling on the limit regardless of how much has been earned. */
   capMicro: bigint;
 }
 
-/** Payer diversity saturates here: five distinct payers is full credit. */
-const DIVERSITY_SATURATION = 5;
-
 /**
- * Project trailing earnings forward over the horizon, discount for payer
- * concentration, and cap.
+ * The limit is what the agents have actually earned, cumulatively, capped.
  *
- * There is deliberately no decay logic. The trailing window empties itself when
- * income stops, so the limit falls on its own — decay is a consequence of the
- * measurement, not a separate mechanism to maintain.
+ * This is a debit model, not a credit line: money is spendable because it was
+ * already earned and recorded onchain, not because we predict more is coming.
+ * It matches how the card is actually backed — spending power derives from
+ * collateral, so promising more than has been banked would be writing a cheque
+ * the treasury cannot cover.
+ *
+ * Two consequences are deliberate:
+ *
+ *   - **No payer-diversity discount.** Concentration is a risk to *future*
+ *     income, and there is no future income in this number. Money already
+ *     earned from one customer spends exactly like money earned from five.
+ *     `distinctPayers` is still tracked and reported, it just does not gate
+ *     spending.
+ *
+ *   - **No decay.** Cumulative earnings never fall, so the limit only moves
+ *     down when money is spent. An agent that stops earning keeps what it
+ *     already made rather than watching it evaporate.
  */
 export function computeLimit(
-  profile: Pick<Profile, "earnedInWindowMicro" | "distinctPayers">,
+  profile: Pick<PooledProfile, "totalEarnedMicro">,
   outstandingMicro: bigint,
   params: LimitParams,
 ): LimitState {
-  const projectedMicro =
-    (profile.earnedInWindowMicro * BigInt(params.horizonSecs)) /
-    BigInt(params.earningsWindowSecs);
+  // Reported uncapped so the dashboard can show "earned $250, capped at $200"
+  // rather than silently flattening the two.
+  const projectedMicro = profile.totalEarnedMicro;
 
-  // One payer earns 50% of the projection, five or more earns 100%.
-  const diversity = Math.min(profile.distinctPayers, DIVERSITY_SATURATION) / DIVERSITY_SATURATION;
-  const diversityPct = BigInt(Math.round((0.5 + 0.5 * diversity) * 100));
-  const adjusted = (projectedMicro * diversityPct) / 100n;
-
-  const limitMicro = adjusted < params.capMicro ? adjusted : params.capMicro;
+  const limitMicro = projectedMicro < params.capMicro ? projectedMicro : params.capMicro;
 
   return {
     projectedMicro,
