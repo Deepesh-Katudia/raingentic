@@ -2,13 +2,15 @@
 
 :root {
   --ink: #05070a;
-  --surface: #0d1117;
+  --surface: #0e141c;
+  --surface-2: #0a0f16;
   --line: #1c2531;
-  --dim: #6b7a8f;
+  --dim: #64748b;
   --text: #e6edf3;
   --green: #3fdc84;
   --red: #ff5c5c;
   --amber: #ffc247;
+  --blue: #5aa9ff;
 }
 
 html,
@@ -23,8 +25,40 @@ body,
 
 body {
   font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
-  /* A faint vignette so the projector's washed-out edges don't flatten it. */
-  background-image: radial-gradient(ellipse at 50% 0%, #101822 0%, var(--ink) 70%);
+  background-image: radial-gradient(ellipse at 50% -10%, #121b26 0%, var(--ink) 65%);
+}
+
+/*
+ * Explicit rows that sum to the viewport. The previous layout stacked two
+ * flex-1 sections against a fixed one inside a 100vh box with overflow hidden,
+ * so the intrinsic height exceeded the viewport and panels drew on top of each
+ * other. Rows here are declared, and every scrollable child gets min-height:0
+ * so it shrinks rather than pushing its siblings out of the grid.
+ */
+.stage {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1.15fr) auto minmax(0, 1fr);
+  gap: clamp(0.5rem, 1.2vh, 1rem);
+  height: 100vh;
+  padding: clamp(0.75rem, 2vh, 1.75rem) clamp(1rem, 2.5vw, 2.5rem);
+}
+
+.row-2col {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: clamp(0.5rem, 1.2vw, 1.25rem);
+  min-height: 0;
+}
+
+.panel {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: clamp(0.75rem, 2vh, 1.75rem) clamp(1rem, 2vw, 2rem);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .numeral {
@@ -34,28 +68,78 @@ body {
 }
 
 .label {
-  font-size: 0.8rem;
-  letter-spacing: 0.28em;
+  font-size: clamp(0.6rem, 1.35vh, 0.8rem);
+  letter-spacing: 0.26em;
   text-transform: uppercase;
   color: var(--dim);
+  white-space: nowrap;
 }
 
-.panel {
-  background: linear-gradient(180deg, var(--surface) 0%, #0a0e14 100%);
-  border: 1px solid var(--line);
-  border-radius: 14px;
+/* Sized against height as well as width so a short viewport shrinks the type
+   instead of overflowing the panel. */
+.figure-xl {
+  font-size: min(8.5vw, 15vh);
+  line-height: 0.95;
+  font-weight: 700;
+}
+.figure-lg {
+  font-size: min(4.6vw, 8.5vh);
+  line-height: 1;
+  font-weight: 700;
+}
+.figure-md {
+  font-size: min(2.4vw, 4.4vh);
+  line-height: 1.1;
+  font-weight: 700;
+}
+
+/* Composition bar: reserved + outstanding + free sums to the limit, which is
+   more honest than a percentage of an arbitrary cap. */
+.bar {
+  display: flex;
+  height: clamp(0.6rem, 1.8vh, 1.1rem);
+  border-radius: 999px;
+  overflow: hidden;
+  background: #121a24;
+}
+.bar > span {
+  transition: width 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.scroller {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  /* The panel height varies with the viewport, so the last visible row is
+     usually cut mid-line. Fading it reads as "more below" instead of broken. */
+  mask-image: linear-gradient(to bottom, #000 78%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 78%, transparent 100%);
+}
+
+.feed-row {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: baseline;
+  font-size: clamp(0.7rem, 1.7vh, 1.05rem);
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
+}
+/* Long decline reasons used to wrap onto a clipped second line. */
+.feed-row .reason {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  opacity: 0.75;
 }
 
 @keyframes declineFlash {
-  0% { background-color: rgba(255, 92, 92, 0.35); }
-  100% { background-color: transparent; }
+  from { background-color: rgba(255, 92, 92, 0.32); }
+  to { background-color: transparent; }
 }
-
 .flash-decline {
   animation: declineFlash 900ms ease-out;
-}
-
-.gauge-fill {
-  transition: width 300ms cubic-bezier(0.16, 1, 0.3, 1),
-    background-color 300ms ease;
 }

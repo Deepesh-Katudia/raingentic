@@ -9,16 +9,8 @@ function usd(micro: string | bigint, decimals = 2): string {
   const frac = abs % 1_000_000n;
   const scale = 10n ** BigInt(6 - decimals);
   const scaled = (frac + scale / 2n) / scale;
-  const s = `${whole}.${scaled.toString().padStart(decimals, "0")}`;
-  return (neg ? "-" : "") + s.replace(/\B(?=(\d{3})+(?!\d)\.)/, ",");
-}
-
-interface Snapshot {
-  profile: { earnedInWindowMicro: string; distinctPayers: number; totalEarnedMicro: string };
-  limit: { limitMicro: string; outstandingMicro: string; availableMicro: string };
-  card: { cardId: string; last4: string; limitMicro: string } | null;
-  incomeRunning: boolean;
-  events: FeedEvent[];
+  const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${neg ? "-" : ""}${grouped}.${scaled.toString().padStart(decimals, "0")}`;
 }
 
 type FeedEvent =
@@ -28,31 +20,52 @@ type FeedEvent =
   | { type: "card"; cardId: string; last4: string; limitMicro: string }
   | { type: "log"; level: string; message: string };
 
-/** Gauge is drawn against the underwriting cap ($200). */
-const CAP_MICRO: bigint = 200_000_000n;
+interface Snapshot {
+  profile: { earnedInWindowMicro: string; distinctPayers: number; totalEarnedMicro: string };
+  limit: { projectedMicro: string; limitMicro: string; outstandingMicro: string; availableMicro: string };
+  card: { cardId: string; last4: string; limitMicro: string } | null;
+  events: FeedEvent[];
+}
+
+interface Plan {
+  reservedMicro: string;
+  discretionaryMicro: string;
+  reservations: { billId: number; merchantId: string; amountMicro: string; status: string }[];
+  forecast: { billId: number; name: string; covered: boolean; shortfallMicro: string; requiredMicro: string }[];
+}
+
+const EMPTY_PLAN: Plan = { reservedMicro: "0", discretionaryMicro: "0", reservations: [], forecast: [] };
 
 export default function App() {
   const [totalEarned, setTotalEarned] = useState(0n);
   const [limitMicro, setLimitMicro] = useState(0n);
-  const [availableMicro, setAvailableMicro] = useState(0n);
   const [outstandingMicro, setOutstandingMicro] = useState(0n);
   const [payers, setPayers] = useState(0);
   const [card, setCard] = useState<Snapshot["card"]>(null);
   const [feed, setFeed] = useState<FeedEvent[]>([]);
+  const [plan, setPlan] = useState<Plan>(EMPTY_PLAN);
   const [connected, setConnected] = useState(false);
-  const prevLimit = useRef(0n);
-  const [rising, setRising] = useState(true);
+  const seq = useRef(0);
 
-  function applyLimit(e: Extract<FeedEvent, { type: "limit" }>) {
-    const next = BigInt(e.limitMicro);
-    setRising(next >= prevLimit.current);
-    prevLimit.current = next;
-    setLimitMicro(next);
-    setAvailableMicro(BigInt(e.availableMicro));
-    setOutstandingMicro(BigInt(e.outstandingMicro));
-    setTotalEarned(BigInt(e.totalEarnedMicro));
-    setPayers(e.distinctPayers);
-  }
+  // Reservations are not on the event stream, so they are polled. The interval
+  // matches the planner's own cadence; polling faster would show nothing new.
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/plan");
+        if (alive && res.ok) setPlan((await res.json()) as Plan);
+      } catch {
+        /* underwriter restarting; the next tick recovers */
+      }
+    };
+    void load();
+    const t = setInterval(load, 2500);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
 
   useEffect(() => {
     const es = new EventSource("/api/stream");
@@ -65,29 +78,41 @@ export default function App() {
         const s = data.snapshot;
         setTotalEarned(BigInt(s.profile.totalEarnedMicro));
         setLimitMicro(BigInt(s.limit.limitMicro));
-        setAvailableMicro(BigInt(s.limit.availableMicro));
         setOutstandingMicro(BigInt(s.limit.outstandingMicro));
         setPayers(s.profile.distinctPayers);
         setCard(s.card);
         setFeed(s.events);
-        prevLimit.current = BigInt(s.limit.limitMicro);
         return;
       }
 
-      if (data.type === "limit") applyLimit(data);
-      if (data.type === "card") setCard({ cardId: data.cardId, last4: data.last4, limitMicro: data.limitMicro });
-      if (data.type !== "limit") setFeed((f) => [data, ...f].slice(0, 12));
+      if (data.type === "limit") {
+        setLimitMicro(BigInt(data.limitMicro));
+        setOutstandingMicro(BigInt(data.outstandingMicro));
+        setTotalEarned(BigInt(data.totalEarnedMicro));
+        setPayers(data.distinctPayers);
+        return; // limit changes drive the numbers, not the feed
+      }
+
+      if (data.type === "card") {
+        setCard({ cardId: data.cardId, last4: data.last4, limitMicro: data.limitMicro });
+      }
+      seq.current += 1;
+      setFeed((f) => [data, ...f].slice(0, 8));
     };
     return () => es.close();
   }, []);
 
-  const pct = Number((limitMicro * 1000n) / CAP_MICRO) / 10;
+  const reserved = BigInt(plan.reservedMicro);
+  const discretionary = BigInt(plan.discretionaryMicro);
+  const denom = limitMicro > 0n ? limitMicro : 1n;
+  const pct = (v: bigint) => `${Number((v * 10000n) / denom) / 100}%`;
+  const shortfalls = plan.forecast.filter((f) => !f.covered);
 
   return (
-    <div className="h-full flex flex-col gap-5 p-8">
+    <div className="stage">
       <header className="flex items-baseline justify-between">
         <div className="flex items-baseline gap-4">
-          <span className="numeral text-3xl font-bold tracking-tight">FLOAT</span>
+          <span className="numeral text-2xl font-bold tracking-tight">FLOAT</span>
           <span className="label">an agent that earns its own credit</span>
         </div>
         <span className="label" style={{ color: connected ? "var(--green)" : "var(--red)" }}>
@@ -95,82 +120,117 @@ export default function App() {
         </span>
       </header>
 
-      <div className="grid grid-cols-3 gap-5 flex-1 min-h-0">
-        {/* EARNED — the largest thing on screen. */}
-        <section className="panel col-span-2 p-8 flex flex-col justify-center">
-          <div className="label mb-3">Total earned onchain</div>
-          <div className="numeral font-bold leading-none" style={{ fontSize: "clamp(4rem,11vw,10rem)" }}>
+      <div className="row-2col">
+        <section className="panel justify-center">
+          <div className="label">Total earned onchain</div>
+          <div className="numeral figure-xl mt-2">
             <span style={{ color: "var(--dim)" }}>$</span>
             {usd(totalEarned)}
           </div>
-          <div className="label mt-6">
+          <div className="label mt-3">
             {payers} distinct payer{payers === 1 ? "" : "s"} · settled over x402 on Monad
           </div>
         </section>
 
-        {/* CARD */}
-        <section className="panel p-8 flex flex-col justify-between">
+        <section className="panel justify-between">
           <div>
-            <div className="label mb-3">Card</div>
-            <div className="numeral text-5xl font-bold">
-              •••• {card?.last4 ?? "————"}
+            <div className="label">Card</div>
+            <div className="numeral figure-lg mt-2">•••• {card?.last4 ?? "————"}</div>
+            <div className="label mt-1" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+              {card?.cardId ?? "not issued"}
             </div>
-            <div className="label mt-2">{card?.cardId ?? "not issued"}</div>
           </div>
-          <div className="space-y-3">
-            <Row label="Available" value={`$${usd(availableMicro)}`} color="var(--green)" />
-            <Row label="Outstanding" value={`$${usd(outstandingMicro)}`} color="var(--amber)" />
+          <div className="space-y-1">
+            <Stat label="Spendable now" value={usd(discretionary)} color="var(--green)" />
+            <Stat label="Reserved for bills" value={usd(reserved)} color="var(--amber)" />
+            <Stat label="Spent" value={usd(outstandingMicro)} color="var(--blue)" />
           </div>
         </section>
       </div>
 
-      {/* CREDIT LIMIT */}
-      <section className="panel p-8">
-        <div className="flex items-end justify-between mb-4">
+      <section className="panel">
+        <div className="flex items-end justify-between gap-4">
           <div>
-            <div className="label mb-2">Credit limit</div>
-            <div
-              className="numeral font-bold leading-none"
-              style={{ fontSize: "clamp(3rem,7vw,6rem)", color: rising ? "var(--green)" : "var(--red)" }}
-            >
+            <div className="label">Credit limit</div>
+            <div className="numeral figure-lg mt-1" style={{ color: "var(--green)" }}>
               <span style={{ color: "var(--dim)" }}>$</span>
               {usd(limitMicro)}
             </div>
           </div>
-          <div className="label">{rising ? "▲ rising with earnings" : "▼ decaying — income stopped"}</div>
+          <div className="label" style={{ textAlign: "right", whiteSpace: "normal" }}>
+            backed by earnings · falls only when spent
+          </div>
         </div>
-        <div className="h-4 rounded-full overflow-hidden" style={{ background: "#111823" }}>
-          <div
-            className="gauge-fill h-full rounded-full"
-            style={{
-              width: `${Math.min(100, pct)}%`,
-              backgroundColor: rising ? "var(--green)" : "var(--red)",
-            }}
-          />
+        <div className="bar mt-3">
+          <span style={{ width: pct(reserved), background: "var(--amber)" }} />
+          <span style={{ width: pct(outstandingMicro), background: "var(--blue)" }} />
+          <span style={{ width: pct(discretionary), background: "var(--green)" }} />
+        </div>
+        <div className="flex gap-5 mt-2">
+          <Key color="var(--amber)" text="reserved" />
+          <Key color="var(--blue)" text="spent" />
+          <Key color="var(--green)" text="free" />
         </div>
       </section>
 
-      {/* LIVE FEED */}
-      <section className="panel p-6 flex-1 min-h-0 overflow-hidden">
-        <div className="label mb-3">Live feed</div>
-        <div className="space-y-1">
-          {feed.map((e, i) => (
-            <FeedRow key={i} event={e} fresh={i === 0} />
-          ))}
-        </div>
-      </section>
+      <div className="row-2col" style={{ gridTemplateColumns: "1fr 2fr" }}>
+        <section className="panel">
+          <div className="label">Bills covered</div>
+          <div className="scroller mt-2">
+            {plan.reservations.length === 0 && (
+              <div className="label" style={{ letterSpacing: "0.1em" }}>
+                no reservations yet
+              </div>
+            )}
+            {plan.reservations.slice(0, 5).map((r) => (
+              <div key={r.billId} className="numeral feed-row" style={{ gridTemplateColumns: "1fr auto" }}>
+                <span className="reason" style={{ textAlign: "left", opacity: 1 }}>
+                  {r.merchantId}
+                </span>
+                <span style={{ color: r.status === "funded" ? "var(--green)" : "var(--amber)" }}>
+                  ${usd(r.amountMicro)}
+                </span>
+              </div>
+            ))}
+            {shortfalls.length > 0 && (
+              <div className="label mt-2" style={{ color: "var(--red)", whiteSpace: "normal" }}>
+                {shortfalls.length} bill{shortfalls.length === 1 ? "" : "s"} short by $
+                {usd(shortfalls.reduce((s, f) => s + BigInt(f.shortfallMicro), 0n))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="label">Live feed</div>
+          <div className="scroller mt-2">
+            {feed.map((e, i) => (
+              <FeedRow key={i} event={e} fresh={i === 0} />
+            ))}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
 
-function Row({ label, value, color }: { label: string; value: string; color: string }) {
+function Stat({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="flex items-baseline justify-between">
+    <div className="flex items-baseline justify-between gap-3">
       <span className="label">{label}</span>
-      <span className="numeral text-2xl font-bold" style={{ color }}>
-        {value}
+      <span className="numeral figure-md" style={{ color }}>
+        ${value}
       </span>
     </div>
+  );
+}
+
+function Key({ color, text }: { color: string; text: string }) {
+  return (
+    <span className="label flex items-center gap-2">
+      <span style={{ width: 10, height: 10, borderRadius: 3, background: color, display: "inline-block" }} />
+      {text}
+    </span>
   );
 }
 
@@ -179,14 +239,14 @@ function FeedRow({ event, fresh }: { event: FeedEvent; fresh: boolean }) {
     const ok = event.approved;
     return (
       <div
-        className={`numeral flex items-baseline justify-between px-3 py-2 rounded ${!ok && fresh ? "flash-decline" : ""}`}
-        style={{ color: ok ? "var(--green)" : "var(--red)", fontSize: "1.35rem" }}
+        className={`numeral feed-row ${!ok && fresh ? "flash-decline" : ""}`}
+        style={{ color: ok ? "var(--green)" : "var(--red)" }}
       >
         <span className="font-bold">
           {ok ? "APPROVED" : "DECLINED"} ${usd(event.amountMicro)} · {event.merchantId}
         </span>
-        <span style={{ opacity: 0.75 }}>
-          {event.reason} · {event.elapsedMs.toFixed(1)}ms
+        <span className="reason">
+          {event.reason} · {event.elapsedMs.toFixed(2)}ms
         </span>
       </div>
     );
@@ -194,25 +254,27 @@ function FeedRow({ event, fresh }: { event: FeedEvent; fresh: boolean }) {
 
   if (event.type === "receipt") {
     return (
-      <div className="numeral flex items-baseline justify-between px-3 py-1" style={{ color: "var(--dim)", fontSize: "1.1rem" }}>
-        <span>receipt ${usd(event.amountMicro)} from {event.payer.slice(0, 10)}…</span>
-        <span>onchain</span>
+      <div className="numeral feed-row" style={{ color: "var(--dim)" }}>
+        <span>receipt ${usd(event.amountMicro)}</span>
+        <span className="reason">from {event.payer.slice(0, 12)}… · onchain</span>
       </div>
     );
   }
 
   if (event.type === "card") {
     return (
-      <div className="numeral px-3 py-1" style={{ color: "var(--amber)", fontSize: "1.1rem" }}>
-        card {event.cardId} ••••{event.last4} scope ${usd(event.limitMicro)}
+      <div className="numeral feed-row" style={{ color: "var(--amber)" }}>
+        <span>card ••••{event.last4}</span>
+        <span className="reason">scope ${usd(event.limitMicro)}</span>
       </div>
     );
   }
 
   if (event.type === "log") {
     return (
-      <div className="numeral px-3 py-1" style={{ color: "var(--dim)", fontSize: "1.1rem" }}>
-        {event.message}
+      <div className="numeral feed-row" style={{ color: event.level === "warn" ? "var(--amber)" : "var(--dim)" }}>
+        <span>{event.message}</span>
+        <span className="reason" />
       </div>
     );
   }
