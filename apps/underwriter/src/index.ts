@@ -95,6 +95,40 @@ function scheduleScopeSync(): void {
 }
 
 let lastLast4 = "0000";
+let issuing = false;
+
+/** Rain rejects a card whose limit rounds to less than one cent. */
+const MIN_CARD_MICRO = 10_000n;
+
+/**
+ * Issue the card lazily, the first time there is actually something to scope.
+ *
+ * Issuing at boot sent Rain a zero limit and it replied
+ * "body/limit/amount must be >= 1", which killed the process. A treasury with
+ * no earnings has no card to issue yet — that is a normal state, not a failure,
+ * so this waits rather than erroring, and a Rain outage degrades the service
+ * instead of stopping it.
+ */
+async function ensureCard(): Promise<void> {
+  if (cardId || issuing) return;
+
+  const limitMicro = store.limitState.limitMicro;
+  if (limitMicro < MIN_CARD_MICRO) return;
+
+  issuing = true;
+  try {
+    const issued = await rain.issueCard(buildScope(limitMicro));
+    cardId = issued.cardId;
+    lastLast4 = issued.last4;
+    lastSyncedMicro = store.availableMicro;
+    store.setCard({ cardId: issued.cardId, last4: issued.last4, limitMicro });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[rain] card issuance failed, will retry: ${message}`);
+  } finally {
+    issuing = false;
+  }
+}
 
 // --- HTTP -------------------------------------------------------------------
 
@@ -305,12 +339,10 @@ app.listen(uw.port, async () => {
     store.setReservations(planner.active());
   }, treasury.plannerIntervalMs);
 
-  const issued = await rain.issueCard(buildScope(store.availableMicro));
-  cardId = issued.cardId;
-  lastLast4 = issued.last4;
-  store.setCard({ cardId: issued.cardId, last4: issued.last4, limitMicro: store.availableMicro });
-
-  setInterval(scheduleScopeSync, 500);
+  setInterval(() => {
+    void ensureCard();
+    scheduleScopeSync();
+  }, 500);
 
   if (rain instanceof MockRainClient) {
     rain.startSyntheticAuths(rainCfg.mockAuthIntervalMs, (r) =>
