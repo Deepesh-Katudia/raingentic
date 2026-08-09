@@ -1,4 +1,4 @@
-# FLOAT
+# PAYHIVE
 
 An AI agent that earns its own money onchain and holds a real credit card whose
 limit tracks its live earnings.
