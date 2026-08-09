@@ -55,6 +55,30 @@ curl -X POST localhost:3002/control/start
 pnpm -F @float/underwriter test
 ```
 
+## Running with no testnet funds
+
+Testnet faucets rate-limit by IP, so the chain half is often unfundable. Everything
+above the chain still runs:
+
+```bash
+pnpm dev      # terminal 1 — all five services
+pnpm demo     # terminal 2 — drives the whole story
+```
+
+`pnpm demo` injects a simulated $40 treasury, sets two bills, shows the planner
+reserving against them in priority order, has a biller overcharge (declined by the
+per-merchant cap), pays the real bill from earned income, and verifies that
+consuming a reservation leaves discretionary credit untouched.
+
+The injection is **not earned money**. `POST /api/demo/earnings` returns 409 the
+moment `CREDIT_FILE_ADDRESS` is set, so a real deployment can never be overwritten
+with fabricated earnings, and every call logs a warning naming itself. Once you
+deploy, `pnpm demo` reads real onchain earnings instead.
+
+Only one wallet needs MON to go real — the same key can serve as both deployer and
+the single earning agent. Leave `AGENT_SCRAPE_PRIVATE_KEY` and
+`AGENT_SHOP_PRIVATE_KEY` blank and set `BUYER_COUNT=1`.
+
 ## Running the demo
 
 ```bash

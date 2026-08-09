@@ -10,7 +10,8 @@
     "contracts:build": "pnpm -F @float/contracts run build",
     "contracts:test": "pnpm -F @float/contracts run test",
     "contracts:deploy": "pnpm -F @float/contracts run deploy",
-    "smoke:x402": "pnpm -F @float/buyer-agents smoke",
+    "demo": "tsx scripts/demo.ts",
+    "smoke:x402": "pnpm -F @float/buyer-agents run smoke",
     "typecheck": "tsc -b --pretty false"
   },
   "pnpm": {
