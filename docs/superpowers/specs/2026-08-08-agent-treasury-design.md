@@ -85,6 +85,46 @@ The planner runs **inside** the underwriter process. The auth path must read res
 
 ---
 
+## 4.2 Rain: verified against the live sandbox (2026-08-08)
+
+Probed directly at `https://api-dev.raincards.xyz/v1` with the hackathon tenant
+(`externalId: rain-hackathon-team-24`, user `634ffc27-16c1-4ed5-a9bf-61efc9c42927`).
+
+**Confirmed working**
+
+| Call | Result |
+|---|---|
+| `Api-Key` header | 200. `Authorization: Bearer` returns 401 "headers is missing required property 'api-key'" |
+| `GET /issuing/users`, `/users/{id}`, `/applications/user/{id}` | 200 |
+| `GET /issuing/users/{id}/balances` | `{creditLimit, pendingCharges, postedCharges, balanceDue, spendingPower, currency}` in **cents** |
+| `GET /issuing/cards?userId={id}` | 200 |
+| `POST /issuing/users/{id}/cards` | **200 — issued a real virtual card**, `****8179`, active, exp 3/2032 |
+
+**Blocked**
+
+| Call | Result |
+|---|---|
+| `POST /issuing/users/{id}/contracts` `{chainId:10143}` | 400 **"Chain not supported"** — Rain does not support Monad testnet |
+| `POST /issuing/users/{id}/contracts` `{chainId:84532}` | 403 **"Tenant does not have permission to create user contracts"** |
+| `GET /issuing/contracts/{id}` | 404 — route does not exist |
+
+### 4.3 Consequence: the collateral cannot live on Monad
+
+Rain rejects `chainId 10143` outright. Collateral must sit on a Rain-supported
+chain — Base Sepolia (84532) passes chain validation. Earnings are recorded on
+Monad and cannot be the collateral backing the card.
+
+The defensible framing is therefore: **Monad earnings determine the card's
+scope; Rain collateral backs settlement.** Claiming the card is collateralised
+by the agent's onchain income would be false, and the chain-support error above
+is the proof.
+
+Card issuance succeeds while `spendingPower` is `$0`, so an issued card cannot
+authorize anything. Unblocking requires Rain to grant the tenant
+contract-creation permission, or to provision the collateral contract directly.
+
+---
+
 ## 5. Data model
 
 Earnings are never stored. The chain is the source of truth and the watcher keeps a live view. The database holds only what the chain cannot know: which agents to watch, what the user owes, and what has been reserved.
