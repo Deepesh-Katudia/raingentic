@@ -196,6 +196,51 @@ app.post("/api/demo/reset", (_req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * Inject a simulated treasury balance so the approve path can be exercised
+ * without a funded chain.
+ *
+ * This is NOT earned money and must never be mistaken for it. Two guards keep
+ * it honest: it refuses outright once CREDIT_FILE_ADDRESS is set, so a real
+ * deployment can never be silently overwritten with fabricated earnings, and
+ * every call logs a warning naming itself.
+ */
+app.post("/api/demo/earnings", (req, res) => {
+  if (creditFileAddressOptional()) {
+    res.status(409).json({
+      ok: false,
+      error:
+        "refusing to fabricate earnings while CREDIT_FILE_ADDRESS is set — " +
+        "the chain is the source of truth once a contract is deployed",
+    });
+    return;
+  }
+
+  const raw = (req.body as { totalEarnedMicro?: unknown })?.totalEarnedMicro;
+  if (typeof raw !== "string" || !/^\d+$/.test(raw)) {
+    res.status(400).json({ ok: false, error: "totalEarnedMicro must be an integer string of micro-USD" });
+    return;
+  }
+
+  const totalEarnedMicro = BigInt(raw);
+  const distinctPayers = Number((req.body as { distinctPayers?: unknown })?.distinctPayers ?? 3);
+
+  console.warn(
+    `[underwriter] SIMULATED earnings injected: ${formatUsdSymbol(totalEarnedMicro)} — not onchain income`,
+  );
+  store.emit({ type: "log", level: "warn", message: `simulated earnings ${formatUsdSymbol(totalEarnedMicro)}` });
+
+  store.setProfile({
+    earnedInWindowMicro: 0n,
+    totalEarnedMicro,
+    distinctPayers,
+    perAgent: [],
+    readAt: Date.now(),
+  });
+
+  res.json({ ok: true, simulated: true, totalEarnedMicro: raw });
+});
+
 app.post("/api/demo/income/:action", async (req, res) => {
   const action = req.params.action;
   if (action !== "start" && action !== "stop") {
