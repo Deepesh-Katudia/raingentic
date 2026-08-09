@@ -113,7 +113,14 @@ export function agentsConfig() {
     { key: "shop", keyVar: "AGENT_SHOP_PRIVATE_KEY", priceVar: "PRICE_MICRO_SHOP", fallback: "100000" },
   ];
 
-  const services = defs.map((d) => {
+  // A service is configured only if its wallet key is present. Every agent
+  // needs its own funded wallet because CreditFile keys receipts by msg.sender,
+  // and testnet faucets rate-limit hard — so running one or two agents while
+  // funding is scarce has to be possible. Omit the key, omit the service.
+  const services = defs.flatMap((d) => {
+    const key = process.env[d.keyVar]?.trim();
+    if (!key) return [];
+
     const priceMicro = reqMicro(d.priceVar, d.fallback);
     if (priceMicro < MIN_PRICE_MICRO) {
       throw new Error(
@@ -121,8 +128,15 @@ export function agentsConfig() {
           `USDC has 6 decimals and cannot move less than $0.000001`,
       );
     }
-    return { key: d.key, privateKey: reqPrivateKey(d.keyVar), priceMicro };
+    return [{ key: d.key, privateKey: reqPrivateKey(d.keyVar), priceMicro }];
   });
+
+  if (services.length === 0) {
+    throw new Error(
+      "No earning agents configured. Set at least one of " +
+        defs.map((d) => d.keyVar).join(", "),
+    );
+  }
 
   return { services };
 }
