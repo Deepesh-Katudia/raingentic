@@ -195,6 +195,9 @@ export function rainConfig() {
     mode: mode as "mock" | "live",
     apiKey: mode === "live" ? req("RAIN_API_KEY") : opt("RAIN_API_KEY", ""),
     apiBase: mode === "live" ? req("RAIN_API_BASE") : opt("RAIN_API_BASE", ""),
+    // Rain scopes issuing under a user: /issuing/users/{userId}/... — without
+    // it there is no URL to call, so live mode cannot start.
+    userId: mode === "live" ? req("RAIN_USER_ID") : opt("RAIN_USER_ID", ""),
     webhookSecret: opt("RAIN_WEBHOOK_SECRET", ""),
     allowedMerchants: opt("ALLOWED_MERCHANTS", "*").split(",").map((s) => s.trim()).filter(Boolean),
     /** MockRainClient fires a synthetic authorization this often. 0 disables. */

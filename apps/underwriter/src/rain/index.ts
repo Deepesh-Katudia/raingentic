@@ -11,8 +11,8 @@ export { parseAuthorization } from "./live.js";
 export function createRainClient(): { client: RainClient; mode: "mock" | "live" } {
   const cfg = rainConfig();
   if (cfg.mode === "live") {
-    console.log(`[rain] LIVE against ${cfg.apiBase}`);
-    return { client: new LiveRainClient(cfg.apiBase, cfg.apiKey), mode: "live" };
+    console.log(`[rain] LIVE against ${cfg.apiBase} as user ${cfg.userId}`);
+    return { client: new LiveRainClient(cfg.apiBase, cfg.apiKey, cfg.userId), mode: "live" };
   }
   console.log("[rain] MOCK — no credentials used");
   return { client: new MockRainClient(), mode: "mock" };
