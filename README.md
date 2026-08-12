@@ -1,90 +1,59 @@
-# FLOAT
+# PayHive
 
-An AI agent that earns its own money onchain and holds a real credit card whose
-limit tracks its live earnings.
+An agentic earn-to-spend platform concept: AI service agents earn small per-call fees from users, and a share of that revenue is meant to fund a separate spending agent that pays the platform's own bills (hosting, AI APIs, etc.) through a Rain-issued card, gated by an on-chain spend limit on Monad.
 
-The agent sells product price lookups to other shopping agents. They pay $0.05
-per query over x402 on Monad testnet. Every payment is recorded onchain as a
-receipt. An underwriter reads those receipts continuously and issues a Rain
-scoped virtual card whose limit equals what the agent has provably earned.
+This repo is currently the **frontend and chat layer** of that idea. The on-chain Treasury contract, Rain card integration, and Stripe billing described in `data/PROJECT_SPEC.md` are designed but not wired up yet — everything here runs on mocked data plus one real integration (Groq for chat replies).
 
-When a card authorization arrives, solvency is checked against onchain-derived
-state **inside the ~2 second authorization window**. That is the point: at 15
-second finality this is impossible, not merely slow.
+## What's in here
 
-Design spec: [`docs/superpowers/specs/2026-08-08-float-design.md`](docs/superpowers/specs/2026-08-08-float-design.md)
+- **`frontend/`** — React 19 + TypeScript + Vite app.
+  - Landing page listing 28 mock service agents (search + pagination).
+  - A chat screen per agent with real LLM replies (via the relay below), session cost tracking, and per-agent chat history saved to `localStorage`.
+  - Sign-in and a payment card are required before an agent can be used — both are mocked (no real auth/payments), but enforced the same way a real flow would gate access.
+  - An admin dashboard with live-updating mocked earnings, spend limit, and expense log.
+- **`server/`** — a small Express relay. Its only job is holding the Groq API key server-side and forwarding chat requests to Groq's API, so the key never ends up in the browser bundle. If it isn't running, the chat falls back to mocked replies instead of failing.
+- **`data/`** — the original project spec and the `Treasury.sol` contract referenced by it, kept for context.
 
-## Setup
+## Running it locally
 
-```bash
-pnpm install
-cp .env.example .env      # then fill in the values below
-```
-
-Required before anything touches the chain:
-
-| Variable | What it needs to be |
-|---|---|
-| `MONAD_RPC_URL` | Working Monad testnet RPC |
-| `SELLER_PRIVATE_KEY` / `SELLER_ADDRESS` | Funded with MON for gas |
-| `BUYER_PRIVATE_KEYS` | 3 comma-separated keys, each funded with **testnet USDC** (`0x534b2f3A21130d7a60830c2Df862319e593943A3`) and a little MON |
-| `CREDIT_FILE_ADDRESS` | Filled in by `pnpm contracts:deploy` |
-
-## Build order
-
-Each step has a binary pass/fail. Do not skip ahead.
+### Frontend
 
 ```bash
-# M0  — everything boots
-pnpm dev
-
-# M0.5 — one paid call settles through the Monad facilitator (needs funded buyer)
-pnpm -F @float/seller-agent dev     # in one terminal
-pnpm smoke:x402                     # in another
-
-# M1  — contract live on Monad testnet
-pnpm contracts:build
-pnpm contracts:deploy               # paste CREDIT_FILE_ADDRESS into .env
-pnpm contracts:test
-
-# M2  — receipts landing onchain at demo rate
-pnpm dev
-curl -X POST localhost:3002/control/start
-
-# M3/M4 — limit tracks earnings, card scope follows, auths decide
-pnpm -F @float/underwriter test
+cd frontend
+npm install
+npm run dev
 ```
 
-## Running the demo
+Opens at `http://localhost:5173`.
+
+### Chat relay (optional, but needed for real agent replies)
 
 ```bash
-pnpm dev                                    # all four services
-open http://localhost:5173                  # dashboard
-curl -X POST localhost:3003/api/demo/income/start
-# ... limit climbs, authorizations approve ...
-curl -X POST localhost:3003/api/demo/income/stop
-# ... limit decays, next authorization declines ...
+cd server
+npm install
+npm run dev
 ```
 
-## Services
+Runs at `http://localhost:8787`. Needs a `GROQ_API_KEY` in a `.env` file at the repo root (one level above `server/`):
 
-| Service | Port | Role |
-|---|---|---|
-| seller-agent | 3001 | x402-gated `/price`, writes batched receipts onchain |
-| buyer-agents | 3002 | income faucet, `POST /control/{start,stop}` |
-| underwriter | 3003 | chain watcher, limit engine, Rain sync, auth decisions, SSE |
-| dashboard | 5173 | projector view |
+```
+GROQ_API_KEY=your_groq_key_here
+```
 
-## Notes
+Get a free key at [console.groq.com](https://console.groq.com).
 
-- **Money is always `bigint` micro-USD.** USDC on Monad has 6 decimals, so one
-  USDC base unit is exactly one micro-USD. No conversion happens anywhere; the
-  amount the facilitator moves is the integer recorded onchain. Floats appear
-  only in `usd()` at the UI edge.
-- **The auth path never awaits I/O.** It reads the in-memory profile the watcher
-  keeps fresh at 500ms. Measured decisions land around 0.03ms against an 800ms
-  hard deadline, and the deadline declines rather than hangs.
-- **`RAIN_MODE=mock` is a supported way to run the whole demo.** The mock is the
-  fallback, not scaffolding — if Rain is unavailable, flip back to it and the
-  full earn → limit → approve → decline loop still works.
-- **No database.** Underwriter memory plus the chain is the entire state.
+## Demo login
+
+There's no real backend yet, so sign-in and card entry are mocked:
+
+- Email/password and test card values live in `frontend/.env` as `VITE_DEMO_EMAIL`, `VITE_DEMO_PASSWORD`, and `VITE_DEMO_CARD_*`.
+- The wallet form is pre-filled with a well-known Stripe test card number by default.
+
+## Tech stack
+
+- React 19, TypeScript, Vite, Tailwind CSS v4, React Router, Zustand
+- Express + Groq API (Llama 3.3) for the chat relay
+
+## Status
+
+Frontend and chat work end-to-end with real LLM replies and a working sign-in/payment gate. The Treasury contract, Rain integration, and real billing are not implemented — this is a UI and chat prototype, not the full platform.

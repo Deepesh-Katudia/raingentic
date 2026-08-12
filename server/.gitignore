@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+*.log
+packages/contracts/out/
+apps/dashboard/dist/
+.DS_Store
+.superpowers/
+*.db
+*.db-wal
+*.db-shm

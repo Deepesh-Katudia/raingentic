@@ -1,7 +1,10 @@
-node_modules/
-dist/
 .env
+.env.*
+node_modules
+.claude
+CLAUDE.md
 *.log
-packages/contracts/out/
-apps/dashboard/dist/
-.DS_Store
+**/tsconfig.tsbuildinfo
+
+# Demo videos exceed GitHub's 100MB file limit; hosted externally
+*.mp4
